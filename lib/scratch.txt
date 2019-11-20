@@ -1,0 +1,149 @@
+
+enum OtpType {
+  totp, hotp
+}
+// https://github.com/google/google-authenticator/wiki/Key-Uri-Format
+Otp otpFromUri(String uri) {
+    Uri u = Uri.parse(uri);
+    if (u.scheme != 'otpauth') {
+      throw Exception('uri had scheme ${u.scheme}, not otpauth');
+    }
+    print(u);
+    OtpType type = u.host == 'totp' ? OtpType.totp : OtpType.hotp;
+
+    // parse issuer from parameter first, then the prefix as a fallback
+    // if neither exists, throw
+    // TODO: if no issuer, maybe pop up box to ask user to fill one in
+    if (u.queryParameters['issuer'] == null && !u.path.contains(':')) {
+      throw Exception('uri is missing issuer, uri: $uri');
+    }
+    String issuer = u.queryParameters['issuer'] != null ? u.queryParameters['issuer'] : u.path.split(':')[0]; 
+
+    // display the prefix to the user, use the parameter as a fallback. 
+    // if neither exists, use empty string. 
+    // TODO: throw if none exists?
+    String displayedIssuer = u.path.contains(':') ? u.path.split(':')[0] ?? '': u.queryParameters['issuer'] ?? '';
+    
+    // account name is in the label. if a prefix exists, it is after a :
+    // if no prefix, it's the whole path
+    String accountName = u.path.contains(':') ? u.path.split(':')[1] : u.path;
+
+    if (type == OtpType.totp) {
+      return Totp();
+    }
+    return Otp();
+  }
+
+class Otp {
+  Otp({
+    this.type = OtpType.hotp,
+    this.displayedIssuer,
+    this.issuer,
+    this.accountName,
+    this.secret,
+    this.counter
+  }) {
+    digits = ValueNotifier(_digits);
+  }
+  
+  OtpType type;
+  String displayedIssuer;
+  String issuer;
+  String accountName;
+  String secret;
+  int counter;
+  Stream<OtpEvent> stream;
+
+  ValueNotifier<String> digits;
+ 
+  String get _digits {
+   
+  }
+
+  String setDigits() {
+    digits.value = '000 000';
+  }
+
+}
+
+class Totp extends Otp {
+  Totp({
+    this.displayedIssuer,
+    this.issuer,
+    this.accountName,
+    this.secret,
+    period = 30,
+    t0 = 0,
+  }) {
+    type = OtpType.totp;
+    counter = (((DateTime.now().millisecondsSinceEpoch * 1000) - t0) / period).floor();
+    _timer = Timer.periodic(Duration(seconds: period), (t) {
+      counter++;
+      digits.value = setDigits();
+    });
+  }
+  String displayedIssuer;
+  String issuer;
+  String accountName;
+  String secret; 
+  int period;
+  int t0;
+  Timer _timer;
+}
+
+// OtpEvent is passed to the OTP card on the UI
+class OtpEvent {
+  OtpEvent({
+    OtpType type,
+    Otp otp,
+    int period,
+    int remaining, 
+    String digits, 
+    String issuer, 
+    String accountName});
+}
+
+------------------------------
+speeddial fab
+
+Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List<Widget>.generate(_fabItems.length, (int index) {
+          return Container(
+            height: 60.0,
+            width: 60.0,
+            alignment: FractionalOffset.topCenter,
+            child: ScaleTransition(
+              scale: CurvedAnimation(
+                parent: _fabController,
+                curve: Interval(0.0, 1.0 - index / _fabItems.length / 2.0, curve: Curves.easeOut) // magic numbers!
+              ),
+              child: FloatingActionButton(
+                heroTag: _fabItems[index].tag,
+                mini: true,
+                child: _fabItems[index].icon,
+                onPressed: _fabItems[index].onPressed
+              ),
+            ),
+          );
+        }).toList()..add(
+          FloatingActionButton(
+            child: AnimatedBuilder(
+              animation: _fabController,
+              builder: (BuildContext context, Widget child) {
+                  return new Transform(transform: new Matrix4.rotationZ(_fabController.value * 0.5 * pi),
+                  alignment: FractionalOffset.center,
+                  child: new Icon(_fabController.isDismissed ? Icons.add : Icons.close),
+                );
+              }
+            ),
+            onPressed: () {
+              if (_fabController.isDismissed) {
+                _fabController.forward();
+                return;
+              }
+              _fabController.reverse();
+            }
+          ),
+        ),
+      ),
